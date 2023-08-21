@@ -1,34 +1,23 @@
 import datetime
 import os
-import urllib
-from glob import glob
-from pprint import pprint
 
-import cv2
 import ee
 import imageio
-import numpy as np
-import tensorflow as tf
-import yaml
 from google.cloud import storage
-from matplotlib import pyplot as plt
 
-from .satellites.FIRM import FIRMS
 from .satellites.FirePred import FirePred
-from .satellites.GOES import GOES
-from .satellites.GOES_FIRE import GOES_FIRE
-from .satellites.Landsat8 import Landsat8
-from .satellites.MODIS import MODIS
-from .satellites.Sentinel1 import Sentinel1
-from .satellites.Sentinel2 import Sentinel2
-from .satellites.VIIRS import VIIRS
-from .satellites.VIIRS_Day import VIIRS_Day
-from .utils.EarthEngineMapClient import EarthEngineMapClient
-from Preprocessing.PreprocessingService import PreprocessingService
 
 
 class DatasetPrepareService:
-    def __init__(self, location, roi=None, config=None):
+    
+    def __init__(self, location, config):
+        """_summary_ Class that handles downloading data associated with the given location and time period from Google Earth Engine.
+
+        Args:
+            location (_type_): _description_ Location for which to download data. Must be a key in the config file.
+            config (_type_): _description_. Config file containing the location and time period for which to download data, 
+            as well as the size of the rectangular area to extract.
+        """
         self.config = config
         self.location = location
         self.rectangular_size = self.config.get('rectangular_size')
@@ -37,156 +26,105 @@ class DatasetPrepareService:
         self.start_time = self.config.get(location).get('start')
         self.end_time = self.config.get(location).get('end')
 
+        # Set the area to extract as an image
         self.rectangular_size = self.config.get('rectangular_size')
-        if roi == None:
-            self.geometry = ee.Geometry.Rectangle(
-                [self.longitude - self.rectangular_size, self.latitude - self.rectangular_size,
-                 self.longitude + self.rectangular_size, self.latitude + self.rectangular_size])
-        else:
-            self.geometry = ee.Geometry.Rectangle(roi)
+        self.geometry = ee.Geometry.Rectangle(
+            [self.longitude - self.rectangular_size, self.latitude - self.rectangular_size,
+                self.longitude + self.rectangular_size, self.latitude + self.rectangular_size])
 
-        self.scale_dict = {"VIIRS_Day": 375, "GOES": 375, "GOES_FIRE": 2000, "FIRMS": 500, "Sentinel2": 20,
-                           "VIIRS": 375, "MODIS": 500, "Sentinel1_asc": 20, "Sentinel1_dsc": 20, "FirePred": 375}
+        self.scale_dict = {"FirePred": 375}
 
     def cast_to_uint8(self, image):
         return image.multiply(512).uint8()
+        
+    def prepare_daily_image(self, date_of_interest:str, time_stamp_start:str="00:00", time_stamp_end:str="23:59"):
+        """_summary_
 
-    def get_satellite_client(self, satellite):
-        if satellite == 'Sentinel2':
-            satellite_client = Sentinel2(False)
-        elif satellite == 'MODIS':
-            satellite_client = MODIS()
-        elif satellite == 'GOES':
-            satellite_client = GOES()
-        elif satellite == 'Sentinel1_asc':
-            satellite_client = Sentinel1("asc", self.location)
-        elif satellite == 'Sentinel1_dsc':
-            satellite_client = Sentinel1("dsc", self.location)
-        elif satellite == 'VIIRS':
-            satellite_client = VIIRS()
-        elif satellite == 'FIRMS':
-            satellite_client = FIRMS()
-        elif satellite == 'GOES_FIRE':
-            satellite_client = GOES_FIRE()
-        elif satellite == 'VIIRS_Day':
-            satellite_client = VIIRS_Day()
-        elif satellite == 'FirePred':
-            satellite_client = FirePred()
-        else:
-            satellite_client = Landsat8()
-        return satellite_client
+        Args:
+            date_of_interest (str): _description_ Date for which we want to download data.
+            time_stamp_start (str, optional): _description_. String representation of start of day time. Defaults to "00:00".
+            time_stamp_end (str, optional): _description_. String representation of end of day time. Defaults to "23:59".
 
-    def prepare_daily_image(self, enable_image_downloading, satellite, date_of_interest, time_stamp_start="00:00",
-                            time_stamp_end="23:59"):
-        satellite_client = self.get_satellite_client(satellite)
-        img_collection = satellite_client.collection_of_interest(date_of_interest + 'T' + time_stamp_start,
+        Returns:
+            _type_: _description_ Extracted image collection.
+        """        """"""
+        
+
+        satellite_client = FirePred()
+        img_collection = satellite_client.compute_daily_features(date_of_interest + 'T' + time_stamp_start,
                                                                  date_of_interest + 'T' + time_stamp_end,
-                                                                 self.geometry)
-        vis_params = satellite_client.get_visualization_parameter()
-        img_collection_as_gif = img_collection.select(vis_params.get('bands')).map(self.cast_to_uint8)
-        if enable_image_downloading and len(img_collection.max().getInfo().get('bands')) != 0:
-            vis_params['format'] = 'jpg'
-            vis_params['dimensions'] = 768
-            url = img_collection.max().clip(self.geometry).getThumbURL(vis_params)
-            print(url)
-            urllib.request.urlretrieve(url, 'images_for_gif/' + self.location + '/' + satellite + str(
-                date_of_interest) + '.jpg')
-        return img_collection, img_collection_as_gif
+                                                                 self.geometry)        
+        return img_collection
 
-    def download_image_to_gcloud(self, img_coll, satellite, index, utm_zone):
-        '''
-        Export images to google cloud, the output image is a rectangular with the center at given latitude and longitude
-        :param img: Image in GEE
-        :return: None
-        '''
+    def download_image_to_gcloud(self, image_collection, index:str, utm_zone:str):
+        """_summary_ Export the given images to google cloud. The output image is a rectangular image, 
+        with the center at the given latitude and longitude.
 
-        # Setup the task.
-        # size = img_coll.size().getInfo()
-        # img_coll = img_coll.toList(size)
-        # for i in range(size):
-        # img = ee.Image(img_coll.get(i))
-        if satellite != 'GOES_every':
-            if "year" in self.config:
-                filename = "WildfireSpreadTS/" + str(self.config["year"]) + '/' + self.location + '/' + index
-            else:
-                filename = self.location + '/' + satellite + '/' + index
-            img = img_coll.max().toFloat()
-            image_task = ee.batch.Export.image.toCloudStorage(
-                image=img,
-                description='Image Export',
-                fileNamePrefix=filename,
-                bucket=self.config.get('output_bucket'),
-                scale=self.scale_dict.get(satellite),
-                crs='EPSG:' + utm_zone,
-                maxPixels=1e13,
-                # fileDimensions=256,
-                # fileFormat='TFRecord',
-                region=self.geometry.toGeoJSON()['coordinates'],
-            )
-            image_task.start()
-            print('Start with image task (id: {}).'.format(image_task.id))
-        else:
-            size = img_coll.size().getInfo()
-            img_list = img_coll.toList(size)
+        Args:
+            image_collection (_type_): _description_
+            index (str): _description_
+            utm_zone (str): _description_
+        """
 
-            n = 0
-            while n < size:
-                img = ee.Image(img_list.get(n))
+        if "year" in self.config:
+            filename = "WildfireSpreadTS/" + str(self.config["year"]) + '/' + self.location + '/' + index
 
-                image_task = ee.batch.Export.image.toCloudStorage(image=img.toFloat(),
-                                                                  description='Image Export',
-                                                                  fileNamePrefix=self.location + satellite + '/' + "Cal_fire_" + self.location + satellite + '-' + index + '-' + str(
-                                                                      n),
-                                                                  bucket=self.config.get('output_bucket'),
-                                                                  scale=self.scale_dict.get(satellite),
-                                                                  crs='EPSG:32610',
-                                                                  maxPixels=1e13,
-                                                                  # fileDimensions=256,
-                                                                  # fileFormat='TFRecord',
-                                                                  region=self.geometry.toGeoJSON()['coordinates']
-                                                                  )
-                image_task.start()
-                print('Start with image task (id: {}).'.format(image_task.id) + index)
-                n += 1
+        img = image_collection.max().toFloat()
+        image_task = ee.batch.Export.image.toCloudStorage(
+            image=img,
+            description='Image Export',
+            fileNamePrefix=filename,
+            bucket=self.config.get('output_bucket'),
+            scale=self.scale_dict.get("FirePred"),
+            crs='EPSG:' + utm_zone,
+            maxPixels=1e13,
+            region=self.geometry.toGeoJSON()['coordinates'],
+        )
+        print('Start with image task (id: {}).'.format(image_task.id))
+        image_task.start()
+        
+    def extract_dataset_from_gee_to_gcloud(self, utm_zone:str, n_buffer_days:int=0):
+        """_summary_ Iterate over the time period specified in the config file, 
+        and download the data for each day to Google Cloud.
 
-    def download_dataset_to_gcloud(self, satellites, utm_zone, download_images_as_jpeg_locally, n_buffer_days=0):
-        '''
+        Args:
+            utm_zone (str): _description_
+            n_buffer_days (int, optional): _description_. Number of days before and 
+            after the fire dates for which we also want to collect data. Defaults to 0.
 
-        :param satellites:
-        :param utm_zone:
-        :param download_images_as_jpeg_locally:
-        :param n_buffer_days: Number of days before and after the fire dates for which we also want to collect data.
-        :return:
-        '''
-        filenames = []
+        Raises:
+            RuntimeError: _description_
+        """
+
         buffer_days = datetime.timedelta(days=n_buffer_days)
         time_dif = self.end_time - self.start_time + 2 * buffer_days + datetime.timedelta(days=1)
 
         for i in range(time_dif.days):
             date_of_interest = str(self.start_time - buffer_days + datetime.timedelta(days=i))
 
-            for satellite in satellites:
-                img_collection, img_collection_as_gif = self.prepare_daily_image(download_images_as_jpeg_locally,
-                                                                                 satellite=satellite,
-                                                                                 date_of_interest=date_of_interest)
-                n_images = len(img_collection.getInfo().get("features"))
-                if n_images > 1:
-                    raise RuntimeError(f"Found {n_images} features in img_collection returned by prepare_daily_image. "
-                                       f"Should have been exactly 1.")
-                max_img = img_collection.max()
-                if len(max_img.getInfo().get('bands')) != 0:
-                    self.download_image_to_gcloud(img_collection, satellite, date_of_interest, utm_zone)
-        if download_images_as_jpeg_locally:
-            images = []
-            for filename in filenames:
-                images.append(imageio.imread('images_for_gif/' + self.location + '/' + filename + '.jpg'))
-            imageio.mimsave('images_for_gif/' + self.location + '.gif', images, format='GIF', fps=1)
+            img_collection = self.prepare_daily_image(date_of_interest=date_of_interest)
 
-    def download_blob(self, bucket_name, prefix, destination_file_name):
+            n_images = len(img_collection.getInfo().get("features"))
+            if n_images > 1:
+                raise RuntimeError(f"Found {n_images} features in img_collection returned by prepare_daily_image. "
+                                    f"Should have been exactly 1.")
+            max_img = img_collection.max()
+            if len(max_img.getInfo().get('bands')) != 0:
+                self.download_image_to_gcloud(img_collection, date_of_interest, utm_zone)
+
+    def download_blob(self, bucket_name:str, blob_name:str, destination_file_name:str):
+        """_summary_
+
+        Args:
+            bucket_name (str): _description_ GCloud bucket name, as given in config.
+            blob_name (str): _description_ Name of blob inside the GCloud bucket
+            destination_file_name (str): _description_ Local name for the file to be downloaded.
+        """
+
         storage_client = storage.Client()
 
         bucket = storage_client.bucket(bucket_name)
-        blobs = bucket.list_blobs(prefix=prefix)
+        blobs = bucket.list_blobs(prefix=blob_name)
         for blob in blobs:
             filename = blob.name.split('/')[2].replace('.tif', '') + '_' + blob.name.split('/')[1] + '.tif'
             blob.download_to_filename(destination_file_name + filename)
@@ -196,15 +134,14 @@ class DatasetPrepareService:
                 )
             )
 
-    def batch_downloading_from_gclound_training(self, satellites):
-        for satellite in satellites:
-            if "year" in self.config:
-                blob_name = str(self.config["year"]) + '/' + self.location + '/'
-                destination_name = 'data/' + str(self.config["year"]) + '/' + self.location + '/'
-            else:
-                blob_name = self.location + '/' + satellite + '/'
-                destination_name = 'data/' + self.location + '/' + satellite + '/'
-            dir_name = os.path.dirname(destination_name)
-            if not os.path.exists(dir_name):
-                os.makedirs(dir_name)
-            self.download_blob(self.config.get('output_bucket'), blob_name, destination_name)
+    def download_data_from_gcloud_to_local(self):
+        """_summary_ Download the data from Google Cloud to the local machine. 
+        The data must have been exported from GEE to GCloud first.
+        """
+        if "year" in self.config:
+            blob_name = str(self.config["year"]) + '/' + self.location + '/'
+            destination_name = 'data/' + str(self.config["year"]) + '/' + self.location + '/'
+        dir_name = os.path.dirname(destination_name)
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+        self.download_blob(self.config.get('output_bucket'), blob_name, destination_name)

@@ -6,31 +6,42 @@ import math
 
 class FirePred:
     def __init__(self):
+        """_summary_ This class describes which data to extract how from Google Earth Engine. 
+        The init defines the different source data products to use. 
+        """
         self.name = "FirePred"
-        self.viirs = ee.ImageCollection('NOAA/VIIRS/001/VNP09GA')
+        # Digital elevation model
         self.srtm = ee.Image("USGS/SRTMGL1_003")
         self.landcover = ee.ImageCollection("MODIS/061/MCD12Q1")
         self.weather = ee.ImageCollection("IDAHO_EPSCOR/GRIDMET")
         self.weather_forecast = ee.ImageCollection('NOAA/GFS0P25')
         self.drought = ee.ImageCollection("GRIDMET/DROUGHT")
-        self.viirs = ee.ImageCollection("NOAA/VIIRS/001/VNP09GA")
+        # VIIRS surface reflectance
+        self.viirs = ee.ImageCollection('NOAA/VIIRS/001/VNP09GA')
+        # VIIRS active fire product
         self.viirs_af = ee.FeatureCollection('projects/grand-drive-285514/assets/afall')
+        # VIIRS vegetation index
         self.viirs_veg_idx = ee.ImageCollection("NOAA/VIIRS/001/VNP13A1")
 
-    def collection_of_interest(self, start_time, end_time, geometry):
+    def compute_daily_features(self, start_time:str, end_time:str, geometry:ee.Geometry):
+        """_summary_ Compute the daily features in Google Earth Engine.
+
+        Args:
+            start_time (str): _description_
+            end_time (str): _description_
+            geometry (ee.Geometry): _description_
+
+        Returns:
+            ee.ImageCollection: _description_ ImageCollection containing one image, 
+            with all desired features for the given day, inside the given geometry.
+        """
+
 
         # Time objects we need later. We add "000" to timestamps, because GEE has timestamps with miliseconds,
         # but datetime doesn't by default
-        one_day = datetime.timedelta(days=1)
-        six_hours = datetime.timedelta(hours=6)
-        one_second = datetime.timedelta(seconds=1)
         today_string = start_time[:-6].replace("-", "")
         today = datetime.datetime.strptime(start_time[:-6], '%Y-%m-%d')
         today_timestamp = int(datetime.datetime.timestamp(today)) * 1000
-        tomorrow = today + one_day
-        tomorrow_timestamp = int(datetime.datetime.timestamp(tomorrow)) * 1000
-        tomorrow_minus_six_h_timestamp = int(datetime.datetime.timestamp(tomorrow - six_hours)) * 1000
-        end_of_tomorrow_timestamp = int(datetime.datetime.timestamp(tomorrow + one_day - one_second)) * 1000
 
         # Weather Data
         # Median is used to turn ee.ImageCollection into a single ee.Image.
@@ -43,16 +54,6 @@ class FirePred:
         energy_release_component = weather.select('erc').median().rename("energy release component")
         specific_humidity = weather.select('sph').median().rename("specific humidity")
         wind_velocity = weather.select('vs').median().rename("wind speed")
-
-        # Weather forecast data
-        ## Old version:
-        # Use forecasts for tomorrow that were created in the last six hours before tomorrow.
-        # Forecasts are updated every six hours, so we just want the latest available one.
-        # ee.Filter.gte("creation_time", tomorrow_minus_six_h_timestamp)).filter(
-        # ee.Filter.lte('creation_time', tomorrow_timestamp)).filter(
-        # Forecasts should inform us about the weather during the day tomorrow
-        # ee.Filter.gte('forecast_time', tomorrow_timestamp)).filter(
-        # ee.Filter.lte('forecast_time', end_of_tomorrow_timestamp))
 
         # Take forecasts made at midnight (00), and that tell us something about the hours between 01 and 24.
         # Important: The forecasts at 00 contain six features instead of nine, like all others.
@@ -105,13 +106,13 @@ class FirePred:
         # VIIRS IMG and AF product
         viirs_img = self.viirs.filterDate(start_time, end_time).filterBounds(geometry).select(
             ['M11', 'I2', 'I1']).median()
-        # viirs_ndvi = self.viirs.filterDate(start_time, end_time).filterBounds(geometry).map(self.get_ratio).select(
-        #    ['ndvi']).median()
         viirs_veg_idc = self.viirs_veg_idx.filterDate((
                 datetime.datetime.strptime(end_time[:-6], '%Y-%m-%d') + datetime.timedelta(-15)).strftime(
             '%Y-%m-%d'), end_time).filterBounds(geometry).select(['NDVI', 'EVI2']).reduce(
             ee.Reducer.last())
 
+        # VIIRS AF consists only of points, so we need to turn them into a raster image.
+        # We also filter out low confidence detections, since they are most likely false positives. 
         viirs_af_img = self.viirs_af.map(add_acq_hour).filterBounds(geometry) \
             .filter(ee.Filter.gte('acq_date', start_time[:-6])) \
             .filter(ee.Filter.lt('acq_date', (
@@ -129,16 +130,5 @@ class FirePred:
              forecast_specific_humidity,
              viirs_af_img]))
 
-    def get_visualization_parameter(self):
-        return {'bands': ['M11', 'I2', 'I1'], 'min': 0, 'max': 6000.0}
-
     def get_buffer(self, feature):
         return feature.buffer(375 / 2).bounds()
-
-    def get_ratio(self, image):
-        image = ee.Image(image)
-        i1 = image.select('I1')
-        i2 = image.select('I2')
-        ndvi = i2.subtract(i1).divide(i2.add(i1))
-        ndvi = ndvi.rename('ndvi')
-        return ndvi

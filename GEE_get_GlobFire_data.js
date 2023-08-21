@@ -52,10 +52,11 @@ var computeDate = function (f) {
   return f.set({'start_date': ee.Date(f.get('IDate')), 'end_date': ee.Date(f.get('FDate'))});
 }
 
-// Start generate all fires
+// Start generate all fires. Change the year here, to generate fires for a different year.
 var year = '2018';
 var min_size = 1e7;
 
+// Find fires in the GlobFire database that are in the contiguous USA and in the given year.
 var polygons = ee.FeatureCollection('JRC/GWIS/GlobFire/v2/FinalPerimeters')
                   .filter(ee.Filter.gt('IDate', ee.Date(year+'-01-01').millis()))
                   .filter(ee.Filter.lt('IDate', ee.Date(year+'-12-31').millis()))
@@ -67,7 +68,7 @@ polygons = polygons.map(computeArea);
 polygons = polygons.filter(ee.Filter.gt('area', min_size)).filter(ee.Filter.lt('area', 1e20));
 polygons = polygons.map(computeCentroid).map(computeDate);
 
-//Map.addLayer(polygons)
+// Generate task to download the CSV file. Needs to be clicked on the task tab.
 Export.table.toDrive({
     collection: polygons, 
     description: 'us_fire_'+year+'_'+ String(min_size),
