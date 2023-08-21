@@ -3,6 +3,7 @@ aenum==3.0.0
 affine==2.3.0
 appnope==0.1.2
 argon2-cffi==20.1.0
+argparse==1.4.0
 array2gif==1.0.4
 astunparse==1.6.3
 async-generator==1.10
