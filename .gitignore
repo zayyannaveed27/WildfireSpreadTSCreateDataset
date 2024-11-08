@@ -27,3 +27,9 @@ evaluate
 img_train_proj5/
 data_val_proj5
 data_test_proj5
+
+# GEE key file
+*.json
+
+# Environment variables
+.env

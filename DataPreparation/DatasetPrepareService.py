@@ -6,7 +6,7 @@ import imageio
 from google.cloud import storage
 
 from .satellites.FirePred import FirePred
-
+import geemap
 
 class DatasetPrepareService:
     
@@ -67,12 +67,14 @@ class DatasetPrepareService:
         """
 
         if "year" in self.config:
-            filename = "WildfireSpreadTS/" + str(self.config["year"]) + '/' + self.location + '/' + index
+            filename = "data/" + str(self.config["year"]) + '/' + self.location + '/' + index
+        else:
+            raise RuntimeError(f"year is not configured in dataset")
 
-        img = image_collection.max().toFloat()
+        img_full_collection = image_collection.max().toFloat()
         image_task = ee.batch.Export.image.toCloudStorage(
-            image=img,
-            description='Image Export',
+            image=img_full_collection,
+            description="Image Export",
             fileNamePrefix=filename,
             bucket=self.config.get('output_bucket'),
             scale=self.scale_dict.get("FirePred"),
@@ -80,7 +82,6 @@ class DatasetPrepareService:
             maxPixels=1e13,
             region=self.geometry.toGeoJSON()['coordinates'],
         )
-        print('Start with image task (id: {}).'.format(image_task.id))
         image_task.start()
         
     def extract_dataset_from_gee_to_gcloud(self, utm_zone:str, n_buffer_days:int=0):
@@ -110,7 +111,44 @@ class DatasetPrepareService:
                                     f"Should have been exactly 1.")
             max_img = img_collection.max()
             if len(max_img.getInfo().get('bands')) != 0:
-                self.download_image_to_gcloud(img_collection, date_of_interest, utm_zone)
+                # self.download_image_to_gcloud(img_collection, date_of_interest, utm_zone)
+                self.download_image_to_local(img_collection, date_of_interest, utm_zone)
+
+    def download_image_to_local(self, image_collection, date_of_interest: str, utm_zone: str):
+        """
+        Download the given image as a multi-band .tif file directly to the local machine,
+        preserving geospatial metadata.
+
+        Args:
+            image_collection (_type_): Earth Engine image collection to be downloaded.
+            date_of_interest (str): Date string for naming the output file.
+            utm_zone (str): _description_
+        """
+       
+        output_dir = "data/" + str(self.config["year"]) + '/' + self.location
+        os.makedirs(output_dir, exist_ok=True)
+
+        # Define the output file path for the GeoTIFF
+        output_file_path = os.path.join(output_dir, f"{date_of_interest}.tif")
+
+        image = image_collection.max().toFloat()
+
+        try:
+            # Use geemap to download the image
+            geemap.ee_export_image(
+                image,
+                filename=output_file_path,
+                scale=self.scale_dict.get("FirePred"),
+                region=self.geometry.toGeoJSON()['coordinates'],
+                crs='EPSG:' + utm_zone,
+                file_per_band=False  # Save all bands in one file
+            )
+
+        except Exception as e:
+            print(f"Error exporting image: {e}")
+            return
+
+        # print(f"Image saved to {output_file_path}")
 
     def download_blob(self, bucket_name:str, blob_name:str, destination_file_name:str):
         """_summary_

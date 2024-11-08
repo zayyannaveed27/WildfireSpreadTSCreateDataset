@@ -17,11 +17,13 @@ class FirePred:
         self.weather_forecast = ee.ImageCollection('NOAA/GFS0P25')
         self.drought = ee.ImageCollection("GRIDMET/DROUGHT")
         # VIIRS surface reflectance
-        self.viirs = ee.ImageCollection('NOAA/VIIRS/001/VNP09GA')
+        # self.viirs = ee.ImageCollection('NOAA/VIIRS/001/VNP09GA')
+        self.viirs = ee.ImageCollection("NASA/VIIRS/002/VNP09GA")
         # VIIRS active fire product
         self.viirs_af = ee.FeatureCollection('projects/grand-drive-285514/assets/afall')
         # VIIRS vegetation index
-        self.viirs_veg_idx = ee.ImageCollection("NOAA/VIIRS/001/VNP13A1")
+        # self.viirs_veg_idx = ee.ImageCollection("NOAA/VIIRS/001/VNP13A1")
+        self.viirs_veg_idx = ee.ImageCollection("NASA/VIIRS/002/VNP13A1")
 
     def compute_daily_features(self, start_time:str, end_time:str, geometry:ee.Geometry):
         """_summary_ Compute the daily features in Google Earth Engine.
