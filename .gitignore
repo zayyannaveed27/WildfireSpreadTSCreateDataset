@@ -33,3 +33,6 @@ data_test_proj5
 
 # Environment variables
 .env
+
+# TimeSeries data
+TimeSeries/
