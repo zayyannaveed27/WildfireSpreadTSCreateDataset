@@ -1,32 +1,60 @@
-# WildfireSpreadTS - Dataset creation
+# AI for Disaster Management Dataset
 
-To create the dataset, you will need access to Google Cloud Storage and Google Earth Engine. 
+This repository contains the code to recreate the dataset for the senior thesis submission **"Advancing Wildfire Forecasting: A Multimodal Dataset for Pretraining Baseline Models in Disaster Prediction"**.
 
-1. Install all necessary requirements from the requirements.txt file via 
+## Overview
+
+The main goal of this project is to create a multimodal dataset for wildfire prediction by leveraging data from Google Earth Engine (GEE) and integrating it with multiple data sources like satellite imagery, elevation models, and weather forecasts.
+
+## Requirements
+
+To recreate the dataset, you will need:
+- Access to Google Cloud Storage.
+- Access to Google Earth Engine.
+- Python and the required libraries.
+
+## Setup Instructions
+
+1. Install all necessary Python dependencies from the `requirements.txt` file:
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. Set up the [Google Cloud SDK](https://cloud.google.com/sdk/docs/how-to) and authenticate with your Google account:
+   ```
+   gcloud auth login
+   ```
+
+3. Set up the [Google Earth Engine Python API](https://developers.google.com/earth-engine/guides/python_install) and authenticate:
+   ```
+   earthengine authenticate
+   ```
+
+4. Add your [Google Service Account](https://cloud.google.com/iam/docs/service-account-overview) credentials to a `.env` file. Example `.env` file:
+   ```
+   GEE_KEY_FILE=<path_to_service_account_key.json>
+   GEE_SERVICE_ACCOUNT=<service_account_email>
+   ```
+
+5. Update the configuration file `config/US_polygons.json` with the feature collection of sub-regions in the US.
+
+## Usage
+
+To run the script and create the dataset for a specific year and timeframe:
+```bash
+python script_name.py <year> [--start_month <1-12>] [--end_month <1-12>] [--output_dir <output_directory>]
 ```
-pip install -r requirements.txt
+
+### Example
+To generate data for June through August 2024 and store it in the `data/fire_images` directory:
+```bash
+python script_name.py 2024 --start_month 6 --end_month 8 --output_dir data/fire_images
 ```
-2. Set up the [Google Cloud SDK](https://cloud.google.com/sdk/docs/how-to) and authenticate with your Google account.
-3. Set up the [Google Earth Engine Python API](https://developers.google.com/earth-engine/guides/python_install) and authenticate with your Google account.
-4. Enter your [Google Service Account](https://cloud.google.com/iam/docs/service-account-overview) credentials and the path to your key file in `main.py`.
-5. Set the yaml file in `main.py` that you want to use to download corresponding data and change the Google cloud storage bucket name in the respective yaml file to yours.
-6. Run `python main.py` to let GEE compute the dataset and upload it into your Google cloud storage bucket.
 
-The yaml files in `config` contain only the pre-filtered fires that were used in creating the dataset. 
+## Notes
 
+- Ensure your `.env` file is properly configured with GEE credentials.
+- Large datasets may require increased storage space and network bandwidth.
 
-## Downloading the initial list of fires from GlobFire
+For any issues or questions, please contact the repository maintainer.
 
-Above, we use preprocessed yaml files that contain the filtered lists of fires, having removed fire events that 
-do not actually contain any fires in the VIIRS active fire product, as well as a low number of fires that had various
-data format issues. 
-
-If you do want to recreate the inital, unfiltered list of fires, or vary some parameters in their creation, 
-you can paste the content of `GEE_get_GlobFire_data.js` into the GEE interface. This will create a task to download the 
-fires for the year that you set in the script. 
-
-Afterwards, you should convert the csv file into a yaml file via
-
-```python3 fire_csv_to_yaml.py --csv_path YOUR_INPUT_CSV_PATH --yaml_path YOUR_OUTPUT_YAML_PATH --year YOUR_YEAR --bucket_name YOUR_GOOGLE_CLOUD_BUCKET```
-
-This yaml file can then be used in step 5 above. Using the provided yamls in `config` would save you some time though.
