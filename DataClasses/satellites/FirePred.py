@@ -1,5 +1,9 @@
-import datetime
+'''
+File taken from https://github.com/SebastianGer/WildfireSpreadTSCreateDataset from the different wildfire modality sources
+for wildfires available on Github.
+'''
 
+import datetime
 import ee
 import math
 
@@ -17,12 +21,8 @@ class FirePred:
         self.weather_forecast = ee.ImageCollection('NOAA/GFS0P25')
         self.drought = ee.ImageCollection("GRIDMET/DROUGHT")
         # VIIRS surface reflectance
-        # self.viirs = ee.ImageCollection('NOAA/VIIRS/001/VNP09GA')
         self.viirs = ee.ImageCollection("NASA/VIIRS/002/VNP09GA")
-        # VIIRS active fire product
-        self.viirs_af = ee.FeatureCollection('projects/grand-drive-285514/assets/afall')
         # VIIRS vegetation index
-        # self.viirs_veg_idx = ee.ImageCollection("NOAA/VIIRS/001/VNP13A1")
         self.viirs_veg_idx = ee.ImageCollection("NASA/VIIRS/002/VNP13A1")
 
     def compute_daily_features(self, start_time:str, end_time:str, geometry:ee.Geometry):
@@ -113,24 +113,20 @@ class FirePred:
             '%Y-%m-%d'), end_time).filterBounds(geometry).select(['NDVI', 'EVI2']).reduce(
             ee.Reducer.last())
 
-        # VIIRS AF consists only of points, so we need to turn them into a raster image.
-        # We also filter out low confidence detections, since they are most likely false positives. 
-        viirs_af_img = self.viirs_af.map(add_acq_hour).filterBounds(geometry) \
-            .filter(ee.Filter.gte('acq_date', start_time[:-6])) \
-            .filter(ee.Filter.lt('acq_date', (
-                datetime.datetime.strptime(end_time[:-6], '%Y-%m-%d') + datetime.timedelta(1)).strftime(
-            '%Y-%m-%d'))) \
-            .filter(ee.Filter.neq('confidence', 'l')).map(self.get_buffer) \
-            .reduceToImage(['acq_hour'], ee.Reducer.last()) \
-            .rename(['active fire'])
 
-        return ee.ImageCollection(ee.Image(
+        combined_img = ee.Image(
             [viirs_img, viirs_veg_idc, precipitation, wind_velocity, wind_direction, temperature_min, temperature_max,
              energy_release_component, specific_humidity, slope, aspect,
              elevation, drought_index, igbp_land_cover,
              forecast_rain, forecast_wind_speed, forecast_wind_direction, forecast_temperature,
              forecast_specific_humidity,
-             viirs_af_img]))
+             ])
+
+        # Clip the combined image to the input geometry
+        clipped_img = combined_img.clip(geometry)
+    
+        # Return an ImageCollection containing the clipped image
+        return clipped_img
 
     def get_buffer(self, feature):
         return feature.buffer(375 / 2).bounds()

@@ -1,10 +1,7 @@
 venv
 .gitignore
-.idea
 __pycache__
 .DS_Store
-images_after_processing
-images_for_gif
 map.html
 /images_after_processing/
 data/label
@@ -14,25 +11,18 @@ SentinelHubClient/secrets.yaml
 model
 results
 .ipynb_checkpoints
-plt
-plt_proj3_img
-plt_proj3_test
-visulaization_proj3
-dataset_inspection
-data_train_proj3/
-data_train_proj2/
-data_train_proj5/
-data_result_project3
-evaluate
-img_train_proj5/
-data_val_proj5
-data_test_proj5
 
 # GEE key file
-*.json
+gee_key*.json
 
 # Environment variables
 .env
 
 # TimeSeries data
 TimeSeries/
+
+# Visualizations
+visualizations/
+
+# compressed files
+*.tar.gz
